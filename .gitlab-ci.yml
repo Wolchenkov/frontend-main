@@ -1,0 +1,71 @@
+#image: registry.zaryad.tech/brave-manager/frontend/brave-frontend:18.12.0-alpine
+image: node:18.12.0-alpine
+
+services:
+ - name: docker:dind
+   alias: dockerhost
+
+variables:
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://dockerhost:2375/
+  DOCKER_TLS_CERTDIR: ""
+
+stages:
+  - build
+  - lint
+  - deploy
+
+Build:
+  stage: build
+  before_script:
+    - npm install
+  script:
+    - npm run build
+  only:
+    - merge_requests
+    - develop
+    - main
+
+lint:
+  stage: lint
+  before_script:
+    - npm install
+  script:
+    - npm run lint
+  only:
+    - develop
+    - main
+
+
+Deploy-Stage:
+  stage: deploy
+  before_script:
+    - apk --no-cache add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  script:
+    - ssh $SSH_USER@$IP_STAGE "cd ~/brave/nodejs && git pull && docker compose up -d --build app-frontend"
+  only:
+    - develop
+  when: on_success
+
+Deploy-Prod:
+  stage: deploy
+  before_script:
+    - apk --no-cache add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  script:
+    - ssh $SSH_USER_PROD@$IP_PROD "cd ~/brave-docker/nodejs && git pull && docker compose up -d --build app-frontend"
+  only:
+    - main
+  when: on_success
